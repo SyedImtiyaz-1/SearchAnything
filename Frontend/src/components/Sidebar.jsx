@@ -1,60 +1,118 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { Folder, ChevronRight, ChevronDown, Plus, Info, Check, RefreshCw } from 'lucide-react';
 
-const MOCK_TREE = [
-  { name: 'Documents', expanded: false, children: ['Reports', 'Contracts'] },
-  { name: 'Downloads', expanded: false, children: ['PDFs', 'Archives'] },
-  { name: 'Projects', expanded: false, children: ['SearchAnything', 'DataLake'] },
-];
+const API_BASE = 'http://localhost:8000/api';
 
 export default function Sidebar({ folder, setFolder, indexStatus, setIndexStatus }) {
-  const [tree, setTree] = useState(MOCK_TREE);
+  const [tree, setTree] = useState([]);
   const [indexProgress, setIndexProgress] = useState(0);
   const inputRef = useRef(null);
+  const pollingRef = useRef(null);
 
-  const toggleNode = (index) => {
-    setTree(prev =>
-      prev.map((node, i) =>
-        i === index ? { ...node, expanded: !node.expanded } : node
-      )
-    );
+  const fetchFolders = useCallback(async (path = '.') => {
+    try {
+      const resp = await fetch(`${API_BASE}/folders?path=${encodeURIComponent(path)}`);
+      if (!resp.ok) return [];
+      const data = await resp.json();
+      return data.folders.map(f => ({
+        name: f,
+        path: path === '.' ? f : `${path}/${f}`,
+        expanded: false,
+        children: [],
+        loaded: false
+      }));
+    } catch (err) {
+      console.error('Failed to fetch folders:', err);
+      return [];
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchFolders().then(setTree);
+  }, [fetchFolders]);
+
+  const checkIndexStatus = useCallback(async (path) => {
+    try {
+      const resp = await fetch(`${API_BASE}/index/status?folder=${encodeURIComponent(path)}`);
+      if (!resp.ok) return;
+      const data = await resp.json();
+      setIndexStatus(data.indexed ? 'indexed' : 'not_indexed');
+    } catch (err) {
+      console.error('Failed to check index status:', err);
+    }
+  }, [setIndexStatus]);
+
+  const toggleNode = async (index) => {
+    const node = tree[index];
+    if (!node.expanded && !node.loaded) {
+      const children = await fetchFolders(node.path);
+      setTree(prev => prev.map((n, i) => 
+        i === index ? { ...n, expanded: true, children, loaded: true } : n
+      ));
+    } else {
+      setTree(prev => prev.map((n, i) => 
+        i === index ? { ...n, expanded: !n.expanded } : n
+      ));
+    }
+    selectFolder(node.path);
   };
+
+  const pollIndexStatus = useCallback((path) => {
+    if (pollingRef.current) clearInterval(pollingRef.current);
+    
+    pollingRef.current = setInterval(async () => {
+      try {
+        const resp = await fetch(`${API_BASE}/index/status?folder=${encodeURIComponent(path)}`);
+        const data = await resp.json();
+        if (data.indexed) {
+          setIndexStatus('indexed');
+          setIndexProgress(100);
+          clearInterval(pollingRef.current);
+          setTimeout(() => setIndexProgress(0), 1000);
+        }
+      } catch (err) {
+        console.error('Polling error:', err);
+      }
+    }, 2000);
+  }, [setIndexStatus]);
 
   const handleIndex = async () => {
-    if (!folder) return;
+    if (!folder || indexStatus === 'indexing') return;
+    
     setIndexStatus('indexing');
-    setIndexProgress(0);
+    setIndexProgress(10);
 
-    let prog = 0;
-    const timer = setInterval(() => {
-      prog += Math.random() * 15 + 5;
-      setIndexProgress(Math.min(prog, 95));
-      if (prog >= 95) {
-        clearInterval(timer);
-        fetch('http://localhost:8000/api/index', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ folder }),
-        })
-          .then(() => {
-            setIndexProgress(100);
-            setTimeout(() => {
-              setIndexStatus('indexed');
-              setIndexProgress(0);
-            }, 500);
-          })
-          .catch(() => {
-            setIndexStatus('indexed');
-            setIndexProgress(0);
-          });
+    try {
+      const resp = await fetch(`${API_BASE}/index`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ folder }),
+      });
+      
+      if (resp.ok) {
+        setIndexProgress(50);
+        pollIndexStatus(folder);
+      } else {
+        setIndexStatus('not_indexed');
+        setIndexProgress(0);
       }
-    }, 180);
+    } catch (err) {
+      console.error('Indexing failed:', err);
+      setIndexStatus('not_indexed');
+      setIndexProgress(0);
+    }
   };
 
-  const selectFolder = (name) => {
-    setFolder(name);
-    setIndexStatus('not_indexed');
+  const selectFolder = (path) => {
+    setFolder(path);
+    checkIndexStatus(path);
   };
+
+  useEffect(() => {
+    return () => {
+      if (pollingRef.current) clearInterval(pollingRef.current);
+    };
+  }, []);
 
   return (
     <div className="flex flex-col h-full bg-black overflow-hidden select-none border-r border-gray-800">
@@ -76,6 +134,7 @@ export default function Sidebar({ folder, setFolder, indexStatus, setIndexStatus
               type="text"
               value={folder}
               onChange={e => { setFolder(e.target.value); setIndexStatus('not_indexed'); }}
+              onBlur={() => folder && checkIndexStatus(folder)}
               placeholder="/path/to/docs"
               className="
                 w-full pl-3 pr-3 py-2
@@ -88,7 +147,10 @@ export default function Sidebar({ folder, setFolder, indexStatus, setIndexStatus
           </div>
           <button
             id="set-folder-btn"
-            onClick={() => inputRef.current?.focus()}
+            onClick={() => {
+               inputRef.current?.focus();
+               if (folder) checkIndexStatus(folder);
+            }}
             className="
               px-3 py-2 text-[10px] font-mono uppercase tracking-wider
               bg-gray-800 border border-gray-700 rounded-md
@@ -140,15 +202,16 @@ export default function Sidebar({ folder, setFolder, indexStatus, setIndexStatus
 
         <ul className="space-y-1">
           {tree.map((node, i) => (
-            <li key={node.name}>
+            <li key={node.path}>
               <button
                 id={`dir-node-${node.name.toLowerCase()}`}
-                onClick={() => { toggleNode(i); selectFolder(node.name); }}
+                onClick={() => toggleNode(i)}
                 className="
                   w-full flex items-center gap-2.5 px-2 py-1.5 rounded-md
-                  text-left text-[12px] font-mono text-gray-400
-                  hover:bg-gray-900 hover:text-white transition-all
+                  text-left text-[12px] font-mono
+                  hover:bg-gray-900 transition-all
                   cursor-pointer group
+                  ${folder === node.path ? 'text-white bg-gray-900/50' : 'text-gray-400 hover:text-white'}
                 "
               >
                 {node.expanded ? (
@@ -159,21 +222,22 @@ export default function Sidebar({ folder, setFolder, indexStatus, setIndexStatus
                 {node.name}
               </button>
 
-              {node.expanded && (
+              {node.expanded && node.children && (
                 <ul className="ml-5 space-y-1 mt-1 border-l border-gray-800">
                   {node.children.map(child => (
-                    <li key={child}>
+                    <li key={child.path}>
                       <button
-                        onClick={() => selectFolder(`${node.name}/${child}`)}
+                        onClick={() => selectFolder(child.path)}
                         className="
                           w-full flex items-center gap-2.5 px-4 py-1.5
-                          text-left text-[11px] font-mono text-gray-600
+                          text-left text-[11px] font-mono
                           hover:text-white transition-all
                           cursor-pointer
+                          ${folder === child.path ? 'text-white' : 'text-gray-600'}
                         "
                       >
                         <span className="text-gray-800">—</span>
-                        {child}
+                        {child.name}
                       </button>
                     </li>
                   ))}

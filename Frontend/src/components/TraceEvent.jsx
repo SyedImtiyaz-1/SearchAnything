@@ -21,11 +21,11 @@ export default function TraceEvent({ event, onHumanAnswer }) {
           <div className="flex flex-col gap-1 min-w-0">
             <div className="flex items-center gap-2">
                <span className="text-[12px] font-mono text-white font-medium">
-                {event.tool || event.name || 'unknown_tool'}
+                {event.tool_name || event.tool || event.name || 'unknown_tool'}
               </span>
-              {event.args && (
+              {event.tool_input && (
                 <span className="text-[10px] font-mono text-gray-600 truncate max-w-[300px]">
-                  ({JSON.stringify(event.args).replace(/^{|}$/g, '')})
+                  ({JSON.stringify(event.tool_input).replace(/^{|}$/g, '')})
                 </span>
               )}
             </div>
@@ -43,7 +43,7 @@ export default function TraceEvent({ event, onHumanAnswer }) {
           <span className="text-[11px] font-mono text-gray-500 uppercase tracking-wider">
             Navigating into{' '}
             <span className="text-white bg-gray-900 px-1.5 py-0.5 rounded border border-gray-800">
-              {event.path || event.folder || '/'}
+              {event.directory || event.path || event.folder || '/'}
             </span>
           </span>
         </div>

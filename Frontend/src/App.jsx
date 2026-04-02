@@ -17,7 +17,10 @@ export default function App() {
   const [answerPanelOpen, setAnswerPanelOpen] = useState(false);
 
   const handleEvent = useCallback((event) => {
-    switch (event.type) {
+    const { type, data } = event;
+    const payload = data?.data || data;
+    
+    switch (type) {
       case '_ws_open':
         setIsConnected(true);
         setIsThinking(true);
@@ -32,21 +35,21 @@ export default function App() {
         break;
       case 'complete':
         setIsThinking(false);
-        setFinalAnswer(event);
+        setFinalAnswer(data);
         setAnswerPanelOpen(true);
-        setEvents(prev => [...prev, event]);
+        setEvents(prev => [...prev, { type: 'complete', ...data }]);
         break;
       case 'tool_call':
       case 'go_deeper':
       case 'ask_human':
         setIsThinking(false);
-        setEvents(prev => [...prev, event]);
-        if (event.type === 'ask_human') break;
+        setEvents(prev => [...prev, { type, ...data }]);
+        if (type === 'ask_human') break;
         setIsThinking(true);
         break;
       default:
-        if (event.type && !event.type.startsWith('_')) {
-          setEvents(prev => [...prev, event]);
+        if (type && !type.startsWith('_')) {
+          setEvents(prev => [...prev, { type, ...data }]);
         }
     }
   }, []);
@@ -58,7 +61,13 @@ export default function App() {
     setFinalAnswer(null);
     setAnswerPanelOpen(false);
     setIsThinking(false);
-    connect({ task: query, folder });
+    connect({ 
+      task: query, 
+      folder, 
+      use_index: indexStatus === 'indexed',
+      enable_semantic: indexStatus === 'indexed',
+      enable_metadata: indexStatus === 'indexed'
+    });
   }, [connect, folder]);
 
   const handleHumanAnswer = useCallback((answer) => {

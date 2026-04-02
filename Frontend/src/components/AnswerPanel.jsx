@@ -63,13 +63,17 @@ export default function AnswerPanel({ answer }) {
   if (!answer) return null;
 
   const {
-    text,
-    citations = [],
-    files_accessed = [],
-    docs_read = 0,
-    tokens = 0,
-    cost = 0,
+    final_result,
+    stats = {},
+    trace = {},
   } = answer;
+
+  const text = final_result || 'The agent completed the exploration.';
+  const citations = trace.cited_sources || [];
+  const files_accessed = trace.referenced_documents || [];
+  const docs_read = stats.documents_scanned || 0;
+  const tokens = stats.total_tokens || 0;
+  const cost = stats.estimated_cost || 0;
 
   return (
     <div className="flex flex-col h-full bg-black overflow-hidden border-l border-gray-800 shadow-2xl">

@@ -11,7 +11,7 @@ export function useWebSocket({ onEvent }) {
     onEventRef.current = onEvent;
   }, [onEvent]);
 
-  const connect = useCallback(({ task, folder }) => {
+  const connect = useCallback((params) => {
     // Close any existing connection
     if (wsRef.current) {
       wsRef.current.close();
@@ -22,7 +22,7 @@ export function useWebSocket({ onEvent }) {
 
     ws.onopen = () => {
       onEventRef.current({ type: '_ws_open' });
-      ws.send(JSON.stringify({ task, folder }));
+      ws.send(JSON.stringify(params));
     };
 
     ws.onmessage = (event) => {
